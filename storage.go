@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 )
@@ -103,4 +104,60 @@ func (s *DataStore) SavePayouts(payouts []Payout) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return saveJSON(s.PayoutsFile, payouts)
+}
+
+type AddPayoutTxResult struct {
+	TotalEarned int
+	TotalPaid   int
+	NewPaid     int
+}
+
+func (s *DataStore) AddPayoutAtomic(phone string, amount int, date string) (*AddPayoutTxResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var purchases []Purchase
+	if err := loadJSON(s.PurchasesFile, &purchases); err != nil {
+		return nil, fmt.Errorf("加载收购记录失败: %v", err)
+	}
+
+	totalEarned := 0
+	for _, p := range purchases {
+		if p.Phone == phone {
+			totalEarned += p.Amount
+		}
+	}
+
+	var payouts []Payout
+	if err := loadJSON(s.PayoutsFile, &payouts); err != nil {
+		return nil, fmt.Errorf("加载付款记录失败: %v", err)
+	}
+
+	totalPaid := 0
+	for _, p := range payouts {
+		if p.Phone == phone {
+			totalPaid += p.Amount
+		}
+	}
+
+	if totalPaid+amount > totalEarned {
+		return nil, fmt.Errorf("累计付款(%d分)超过累计应得(%d分)，当前未付金额为%d分",
+			totalPaid+amount, totalEarned, totalEarned-totalPaid)
+	}
+
+	payouts = append(payouts, Payout{
+		Phone:  phone,
+		Amount: amount,
+		Date:   date,
+	})
+
+	if err := saveJSON(s.PayoutsFile, payouts); err != nil {
+		return nil, fmt.Errorf("保存付款记录失败: %v", err)
+	}
+
+	return &AddPayoutTxResult{
+		TotalEarned: totalEarned,
+		TotalPaid:   totalPaid,
+		NewPaid:     totalPaid + amount,
+	}, nil
 }

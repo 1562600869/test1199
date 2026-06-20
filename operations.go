@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 )
 
@@ -57,7 +58,8 @@ func PurchaseItem(categoryID, supplier, phone string, weight float64, date strin
 	if phone == "" {
 		return errors.New("供应商电话不能为空")
 	}
-	if weight <= 0 {
+	const epsilon = 1e-9
+	if weight <= epsilon {
 		return errors.New("重量必须是正数")
 	}
 	if date == "" {
@@ -126,43 +128,17 @@ func AddPayout(phone string, amount int, date string) error {
 		return errors.New("日期不能为空")
 	}
 
-	totalEarned, err := calculateSupplierEarned(phone)
+	result, err := Store.AddPayoutAtomic(phone, amount, date)
 	if err != nil {
 		return err
 	}
 
-	totalPaid, err := calculateSupplierPaid(phone)
-	if err != nil {
-		return err
-	}
-
-	if totalPaid+amount > totalEarned {
-		return fmt.Errorf("累计付款(%d分)超过累计应得(%d分)，当前未付金额为%d分",
-			totalPaid+amount, totalEarned, totalEarned-totalPaid)
-	}
-
-	payouts, err := Store.LoadPayouts()
-	if err != nil {
-		return fmt.Errorf("加载付款记录失败: %v", err)
-	}
-
-	payouts = append(payouts, Payout{
-		Phone:  phone,
-		Amount: amount,
-		Date:   date,
-	})
-
-	if err := Store.SavePayouts(payouts); err != nil {
-		return fmt.Errorf("保存付款记录失败: %v", err)
-	}
-
-	newPaid := totalPaid + amount
 	fmt.Printf("付款记录添加成功:\n")
 	fmt.Printf("  电话: %s\n", phone)
 	fmt.Printf("  本次付款: %d分 (%.2f元)\n", amount, float64(amount)/100.0)
-	fmt.Printf("  累计应得: %d分 (%.2f元)\n", totalEarned, float64(totalEarned)/100.0)
-	fmt.Printf("  累计已付: %d分 (%.2f元)\n", newPaid, float64(newPaid)/100.0)
-	fmt.Printf("  剩余未付: %d分 (%.2f元)\n", totalEarned-newPaid, float64(totalEarned-newPaid)/100.0)
+	fmt.Printf("  累计应得: %d分 (%.2f元)\n", result.TotalEarned, float64(result.TotalEarned)/100.0)
+	fmt.Printf("  累计已付: %d分 (%.2f元)\n", result.NewPaid, float64(result.NewPaid)/100.0)
+	fmt.Printf("  剩余未付: %d分 (%.2f元)\n", result.TotalEarned-result.NewPaid, float64(result.TotalEarned-result.NewPaid)/100.0)
 	fmt.Printf("  日期: %s\n", date)
 	return nil
 }
@@ -210,9 +186,14 @@ func SupplierBalance(phone string) error {
 	return nil
 }
 
+var monthPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
+
 func MonthlySummary(month string) error {
 	if month == "" {
 		return errors.New("月份不能为空")
+	}
+	if !monthPattern.MatchString(month) {
+		return fmt.Errorf("月份格式不正确，应为 YYYY-MM，例如: 2024-03")
 	}
 
 	purchases, err := Store.LoadPurchases()

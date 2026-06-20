@@ -4,17 +4,5 @@
     "name": "废纸",
     "unit": "kg",
     "price_per_unit": 2
-  },
-  {
-    "id": "C002",
-    "name": "塑料瓶",
-    "unit": "个",
-    "price_per_unit": 5
-  },
-  {
-    "id": "C003",
-    "name": "废铁",
-    "unit": "kg",
-    "price_per_unit": 15
   }
 ]
